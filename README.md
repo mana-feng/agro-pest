@@ -1,27 +1,26 @@
-# Structure  
-agro-pest/  
-├── config.yaml  
-├── requirements.txt  
-├── README.md  
-├── src/  
-│   └── gp_resnet18.py  
-└── data/  
-└── archive/  
-  
-data/archive/  
-│  
-├── train/  
-│   ├── images/  
-│   └── labels/  
-│  
-├── valid/  
-│   ├── images/  
-│   └── labels/  
-│  
-└── test/  
-    ├── images/  
-    └── labels/  
-  
+# Structure
+
+```
+agro-pest/
+├── config.yaml
+├── requirements.txt
+├── README.md
+├── src/
+│   └── gp_resnet18.py
+└── data/
+    └── archive/
+
+data/archive/
+├── train/
+│   ├── images/
+│   └── labels/
+├── valid/
+│   ├── images/
+│   └── labels/
+└── test/
+    ├── images/
+    └── labels/
+```
 pip install -r requirements.txt  
   
 Output:  
