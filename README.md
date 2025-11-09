@@ -1,15 +1,12 @@
-# agro-pest
-agro-pest-main/
-│
-├── config.yaml            # Configuration file (paths, parameters)
-├── requirements.txt       # Dependencies
-├── README.md              # This file
-│
+# Structure
+agro-pest/
+├── config.yaml          # 配置（路径 & 训练参数）
+├── requirements.txt     # 依赖
+├── README.md
 ├── src/
-│   └── gp_resnet18.py     # Main training & evaluation script
-│
+│   └── gp_resnet18.py   # 训练 + 评测主脚本
 └── data/
-    └── archive/           # Place the dataset here (contains train/valid/test folders)
+└── archive/         # 放数据集（含 train/valid/test）
 
 data/archive/
 │
