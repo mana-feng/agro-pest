@@ -7,6 +7,7 @@ import csv
 import argparse
 import yaml
 
+import kagglehub
 import cv2 as cv
 import numpy as np
 import torch
@@ -372,11 +373,61 @@ def train_and_eval(ds_root: Path, out_root: Path, num_classes: int, cfg: dict):
     print(f"  - Report  : {report_txt}")
 
 
+def find_yolo_dataset_root(dataset_path: Path):
+    """Find the root directory containing train/valid/test splits."""
+    dataset_path = Path(dataset_path)
+    
+    # Check if dataset_path itself has train/valid/test
+    if (dataset_path / "train" / "images").exists():
+        return dataset_path
+    
+    # Search for common subdirectories
+    for possible_dir in ["archive", "data", "dataset"]:
+        candidate = dataset_path / possible_dir
+        if (candidate / "train" / "images").exists():
+            return candidate
+    
+    # Search in immediate subdirectories
+    if dataset_path.exists() and dataset_path.is_dir():
+        for subdir in dataset_path.iterdir():
+            if subdir.is_dir() and (subdir / "train" / "images").exists():
+                return subdir
+    
+    # If not found, return original path and let it fail with a clear error
+    return dataset_path
+
+
 def main():
     cfg = load_config_with_overrides(CONFIG)
     set_seed(cfg["SEED"])
 
-    yolo_root = Path(cfg["YOLO_ROOT"])
+    # Download dataset from Kaggle
+    print("Downloading dataset from Kaggle...")
+    try:
+        dataset_path = kagglehub.dataset_download("rupankarmajumdar/crop-pests-dataset")
+        print(f"Dataset downloaded to: {dataset_path}")
+    except Exception as e:
+        print(f"Error downloading dataset: {e}")
+        print("Please ensure you have Kaggle credentials set up.")
+        print("See README.md for instructions on setting up Kaggle authentication.")
+        return
+    
+    # Find the correct YOLO dataset root
+    yolo_root = find_yolo_dataset_root(Path(dataset_path))
+    print(f"Using dataset root: {yolo_root}")
+    
+    # Verify dataset structure
+    required_dirs = ["train/images", "train/labels", "valid/images", "valid/labels", "test/images", "test/labels"]
+    missing_dirs = []
+    for req_dir in required_dirs:
+        if not (yolo_root / req_dir).exists():
+            missing_dirs.append(req_dir)
+    
+    if missing_dirs:
+        print(f"Error: Missing required directories: {missing_dirs}")
+        print(f"Expected structure: {yolo_root}/{{train,valid,test}}/{{images,labels}}/")
+        return
+    
     out_root = Path(cfg["OUT_ROOT"])
 
     # 1) Build cropped classification dataset
