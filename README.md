@@ -11,7 +11,7 @@ Manual
 运行test.py对该文件夹进行过滤。  
 默认设置是每类照片50个。  
 
-
+```
 densenet/
 ├── README.md
 ├── src/
@@ -27,7 +27,7 @@ densenet/
     └── test/
         ├── images/
         └── labels/
-
+```
 
 大概是可以做到
 YOLO → Crop → ImageFolder 分类
