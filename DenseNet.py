@@ -1,16 +1,3 @@
-"""
-从 YOLO 数据集构建 DenseNet 分类模型的完整流程
-=====================================================
-步骤：
-1. 从 YOLO 数据集读取 (images + labels)
-2. 按 YOLO 标签裁剪目标图片，构建分类数据集
-3. 使用 DenseNet121 训练分类器
-4. 输出指标、混淆矩阵、曲线、报告
-
-用法：
-    python train_from_yolo_densenet.py --yolo_root data/archive --epochs 30
-"""
-
 import os
 import cv2
 import time
@@ -19,6 +6,7 @@ import shutil
 import random
 import argparse
 import numpy as np
+import random
 import matplotlib.pyplot as plt
 from pathlib import Path
 from sklearn.metrics import (
@@ -32,35 +20,20 @@ from torchvision import datasets, transforms, models
 from torch.utils.data import DataLoader
 
 
-
-
-
-# -----------------------------
-# 参数解析
-# -----------------------------
 def parse_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--yolo_root", type=str, default="data/archive", help="YOLO 数据集根目录")
-    ap.add_argument("--out_root", type=str, default="runs", help="输出根目录")
-    ap.add_argument("--epochs", type=int, default=30)
-    ap.add_argument("--batch_size", type=int, default=64)
+    ap.add_argument("--yolo_root", type=str, default="data/archive")
+    ap.add_argument("--out_root", type=str, default="runs")
+    ap.add_argument("--epochs", type=int, default=15)
+    ap.add_argument("--batch_size", type=int, default=32)
     ap.add_argument("--lr", type=float, default=4e-4)
     ap.add_argument("--weight_decay", type=float, default=1e-4)
-    ap.add_argument("--freeze_backbone", action="store_true", help="是否冻结特征提取层")
-    ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--freeze_backbone", action="store_true")
+    ap.add_argument("--seed", type=int, default=random.randint(0, 999999))
     return ap.parse_args()
 
 
-# -----------------------------
-# 工具函数
-# -----------------------------
-def set_seed(seed=42):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-
+#Some helper functions
 def get_device():
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         return torch.device("mps")
@@ -76,9 +49,7 @@ def ensure_clean_dir(p: Path):
     p.mkdir(parents=True, exist_ok=True)
 
 
-# -----------------------------
-# YOLO 工具函数
-# -----------------------------
+
 def yolo_box_to_xyxy(lbl_line, W, H):
     parts = lbl_line.strip().split()
     if len(parts) != 5:
@@ -107,14 +78,11 @@ def clamp_xyxy(xyxy, W, H, margin_ratio=0.05):
     return xmin, ymin, xmax, ymax
 
 
-# -----------------------------
-# 步骤 1：从 YOLO 数据集裁剪分类数据
-# -----------------------------
+#crop
 def build_classification_dataset(yolo_root: Path, out_root: Path, class_names, margin_ratio=0.05, min_crop=10):
     ds_out = out_root / "dataset_cls"
 
     if ds_out.exists() and any((ds_out / "train").iterdir()):
-        print(f"[build] ⚡ Skipping rebuild — using existing dataset: {ds_out}")
         return ds_out
 
     ensure_clean_dir(ds_out)
@@ -128,7 +96,6 @@ def build_classification_dataset(yolo_root: Path, out_root: Path, class_names, m
         lbl_dir = yolo_root / split / "labels"
         img_paths = list(img_dir.glob("*.jpg"))
 
-        print(f"[build] {split}: {len(img_paths)} images")
         for img_path in img_paths:
             lbl_path = lbl_dir / f"{img_path.stem}.txt"
             if not lbl_path.exists():
@@ -153,13 +120,10 @@ def build_classification_dataset(yolo_root: Path, out_root: Path, class_names, m
                 cname = class_names[cid] if 0 <= cid < len(class_names) else f"class_{cid}"
                 out_path = ds_out / split / cname / f"{img_path.stem}_{i}.jpg"
                 cv2.imwrite(str(out_path), crop)
-    print(f"[build] ✅ Cropped classification dataset at: {ds_out}")
     return ds_out
 
 
-# -----------------------------
-# 步骤 2：加载分类数据
-# -----------------------------
+#find it
 def get_dataloaders(ds_root: Path, img_size=224, batch_size=64):
     norm_mean = [0.485, 0.456, 0.406]
     norm_std = [0.229, 0.224, 0.225]
@@ -171,17 +135,14 @@ def get_dataloaders(ds_root: Path, img_size=224, batch_size=64):
         transforms.ToTensor(),
         transforms.Normalize(norm_mean, norm_std)
     ])
-    print("getdata loader train complete")
+    print("load check")
     tf_eval = transforms.Compose([
         transforms.Resize((img_size, img_size)),
         transforms.ToTensor(),
         transforms.Normalize(norm_mean, norm_std)
     ])
-    print("getdata loader eval complete")
-
-    print("train_ds starting")
+    print("start check")
     train_ds = datasets.ImageFolder(str(ds_root / "train"), transform=tf_train)
-    print("train_ds complete")
 
     valid_ds = datasets.ImageFolder(str(ds_root / "valid"), transform=tf_eval)
     test_ds  = datasets.ImageFolder(str(ds_root / "test"), transform=tf_eval)
@@ -194,10 +155,6 @@ def get_dataloaders(ds_root: Path, img_size=224, batch_size=64):
 
     return train_dl, valid_dl, test_dl, train_ds.classes
 
-
-# -----------------------------
-# 步骤 3：DenseNet 模型
-# -----------------------------
 def create_densenet(num_classes, freeze_backbone=False):
     model = models.densenet121(weights=models.DenseNet121_Weights.IMAGENET1K_V1)
     if freeze_backbone:
@@ -207,10 +164,6 @@ def create_densenet(num_classes, freeze_backbone=False):
     model.classifier = nn.Linear(in_features, num_classes)
     return model
 
-
-# -----------------------------
-# 步骤 4：训练与评估
-# -----------------------------
 @torch.no_grad()
 def evaluate(model, dl, device):
     model.eval()
@@ -240,19 +193,8 @@ def plot_confusion_matrix(cm, classes, out_path):
 
 def train_and_eval(ds_root: Path, out_root: Path, num_classes, args):
     device = get_device()
-    print(f"[device] {device}")
-
-
-
-    print("[init] Creating DenseNet model ...")
     model = create_densenet(num_classes, args.freeze_backbone).to(device)
-    print("[init] DenseNet model loaded ")
-
-
-
     train_dl, valid_dl, test_dl, classes = get_dataloaders(ds_root, batch_size=args.batch_size)
-
-    #model = create_densenet(num_classes, args.freeze_backbone).to(device)
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     criterion = nn.CrossEntropyLoss()
@@ -264,10 +206,6 @@ def train_and_eval(ds_root: Path, out_root: Path, num_classes, args):
 
     train_losses, valid_f1s = [], []
     print("checkpoint4")
-
-    print("Train dataset size:", len(train_dl.dataset))
-    print("Train dataloader batches:", len(train_dl))
-
     for epoch in range(1, args.epochs + 1):
         model.train()
         running_loss = 0.0
@@ -302,28 +240,26 @@ def train_and_eval(ds_root: Path, out_root: Path, num_classes, args):
     with open(report_path, "w") as f:
         f.write(classification_report(y_true_t, y_pred_t, target_names=classes, digits=4))
 
-    print(f"\n=== DONE ===\nSaved in {save_dir}\nTest Acc={acc_t:.4f}, F1={f1_t:.4f}")
+    print(f"\n=== DONE ===\")
 
 
-# -----------------------------
-# 主函数
-# -----------------------------
+
 def main():
     args = parse_args()
-    set_seed(args.seed)
+    if args.seed is not None:
+        set_seed(args.seed)
+        print(f"Using fixed seed: {args.seed}")
+    else:
+        print("No seed fixed — results will be non-deterministic.")
 
     yolo_root = Path("data")
     out_root = Path("runs")
     config_file = yolo_root / "data.yaml"
 
-    # 读取 YOLO 类别信息
     with open(config_file, "r") as f:
         cfg = yaml.safe_load(f)
     class_names = cfg["names"]
-
-    print(f"[YOLO] found {len(class_names)} classes: {class_names}")
-
-    # 步骤 1：裁剪分类数据集
+    
     ds_cls_root = build_classification_dataset(
         yolo_root=yolo_root,
         out_root=out_root,
@@ -332,7 +268,6 @@ def main():
         min_crop=10
     )
 
-    # 步骤 2-4：训练 DenseNet
     train_and_eval(ds_cls_root, out_root, len(class_names), args)
 
 
