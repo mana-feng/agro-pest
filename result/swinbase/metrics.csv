@@ -1,0 +1,3 @@
+split,accuracy,precision_macro,recall_macro,f1_macro
+valid,0.915735,0.917711,0.912362,0.913682
+test,0.917271,0.922684,0.913924,0.914780

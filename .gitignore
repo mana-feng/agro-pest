@@ -1,5 +1,14 @@
+# Data directories
 data/
 runs/
+archive/
+
+# Python
 __pycache__/
-*.pyc
-.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+.learnings/
+
+*.pth

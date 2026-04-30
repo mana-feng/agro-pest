@@ -1,31 +1,245 @@
-# Structure
+# 农业害虫分类
+
+基于传统机器学习和深度学习的农业害虫图像分类系统。
+
+## 项目结构
 
 ```
 agro-pest/
-├── config.yaml
-├── requirements.txt
-├── README.md
-├── src/
-│   └── gp_resnet18.py
-│   └── gp_swinbase.py
-└── data/
-    └── archive/
-
-data/archive/
-├── train/
-│   ├── images/
-│   └── labels/
-├── valid/
-│   ├── images/
-│   └── labels/
-└── test/
-    ├── images/
-    └── labels/
+├── config.yaml                 # 配置文件
+├── requirements.txt            # Python 依赖
+├── archive/                    # YOLO 格式数据集 (train/val/test)
+│   ├── train/images/labels/
+│   ├── val/images/labels/
+│   └── test/images/labels/
+├── models/
+│   ├── feature_extraction.py   # 特征提取模块
+│   ├── shared.py               # 共享工具函数
+│   ├── ML/                     # 传统机器学习模型
+│   │   ├── crop_pest_svm.ipynb
+│   │   ├── crop_pest_lightgbm.ipynb
+│   │   └── ML_ALGORITHMS_COMPARISON.md
+│   ├── resnet18/gp_resnet18.ipynb
+│   ├── densenet/gp_densenet.ipynb
+│   └── swinbase/gp_swinbase.ipynb
+└── result/                     # 评估结果
+    ├── results_summary.md
+    └── {ML,resnet18,densenet,swinbase}/classification_report.txt
 ```
-pip install -r requirements.txt  
-  
-Output:  
-curve_loss.png — training loss curve  
-curve_metrics.png — validation accuracy and F1 curve  
-cm_test.png — test confusion matrix  
-classification_report_test.txt — precision/recall/F1 per class
+
+## 数据集
+
+使用 YOLO 格式的边界框标注，共 12 类害虫：
+
+| 类别 | 类别 | 类别 | 类别 |
+|------|------|------|------|
+| Ants (蚂蚁) | Bees (蜜蜂) | Beetles (甲虫) | Caterpillars (毛虫) |
+| Earthworms (蚯蚓) | Earwigs (蠼螋) | Grasshoppers (蝗虫) | Moths (蛾) |
+| Slugs (蛞蝓) | Snails (蜗牛) | Wasps (黄蜂) | Weevils (象鼻虫) |
+
+## 特征提取
+
+从裁剪的害虫 ROI (64x64) 中提取手工特征：
+
+| 特征 | 维度 | 描述 |
+|------|------|------|
+| HSV 颜色直方图 | 512 | 颜色分布 (8x8x8 bin) |
+| Hu 不变矩 | 7 | 形状不变性 (平移/旋转/缩放不变) |
+| LBP 纹理 | 59 | 局部纹理模式 (uniform, P=8, R=1) |
+| HOG 方向梯度 | 1764 | 边缘方向梯度 (64x64 窗口, 9 bin) |
+| 轮廓几何特征 | 8 | 形状属性 (矩形度、凸度、长宽比等) |
+| GLCM Haralick | 6 | 区域纹理统计 (能量、对比度、同质性等) |
+| **总计** | **2356** | |
+
+## 模型
+
+### 传统机器学习
+
+| 模型 | Notebook | 描述 |
+|------|----------|------|
+| SVM | `crop_pest_svm.ipynb` | RBF 核 + StandardScaler 管道，支持特征/模型缓存 |
+| LightGBM | `crop_pest_lightgbm.ipynb` | 梯度提升树，支持特征/模型缓存，Early Stopping |
+
+### 深度学习
+
+| 模型 | Notebook | 输入尺寸 | 参数量 |
+|------|----------|----------|--------|
+| ResNet18 | `gp_resnet18.ipynb` | 256x256 | ~11.7M |
+| DenseNet | `gp_densenet.ipynb` | 256x256 | ~7.0M |
+| SwinBase | `gp_swinbase.ipynb` | 224x224 | ~88M |
+
+## 结果
+
+| 模型 | 准确率 | Macro Precision | Macro Recall | Macro F1 | Weighted F1 |
+|------|--------|----------------|--------------|----------|-------------|
+| SVM (RBF) | 50.36% | 0.5162 | 0.4933 | 0.4929 | 0.4947 |
+| LightGBM | 57.47% | 0.5879 | 0.5730 | 0.5662 | 0.5603 |
+| ResNet18 | 86.36% | - | - | 0.8680 | 0.8630 |
+| DenseNet | 88.10% | - | - | 0.8809 | 0.8811 |
+| SwinBase | 90.28% | - | - | 0.9034 | 0.9036 |
+
+## 快速开始
+
+### 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+
+### 配置
+
+编辑 `config.yaml` 调整路径、训练参数和裁剪设置：
+
+```yaml
+yolo_root: ./archive
+out_root: runs
+img_size: 256
+epochs: 30
+batch: 64
+lr: 0.0003
+crop_margin_ratio: 0.07
+min_crop_size: 10
+```
+
+### 运行模型
+
+打开对应的 Jupyter Notebook 并运行所有单元格：
+
+- **传统 ML**: `models/ML/crop_pest_lightgbm.ipynb`
+- **深度学习**: `models/{resnet18,densenet,swinbase}/gp_*.ipynb`
+
+## 机器学习准确率低的原因分析
+
+### 核心问题
+
+1. **手工特征判别力有限**
+   - 颜色特征（HSV）：不同害虫颜色可能重叠
+   - 纹理特征（LBP/GLCM）：对图像质量敏感
+   - 形状特征（Hu 矩）：对姿态变化敏感
+   - HOG 特征（1764 维）：占主导，但边缘信息对细粒度分类不足
+
+2. **特征工程问题**
+   - 特征冗余：HOG 占 75%，其他特征被淹没
+   - 未进行特征选择或降维
+   - 特征标准化不充分
+
+3. **数据集限制**
+   - 测试集仅 689 样本，统计显著性不足
+   - 类别不平衡问题
+   - 裁剪质量影响特征提取
+
+4. **模型固有限制**
+   - SVM：高维稀疏特征，RBF 核参数敏感
+   - 多分类策略：OvR/OvO 效果受限
+
+### 对比深度学习
+
+| 方面 | 传统 ML | 深度学习 |
+|------|---------|----------|
+| 特征提取 | 手工设计（固定） | 自动学习（自适应） |
+| 判别力 | 有限（50-57%） | 强（86-90%） |
+| 鲁棒性 | 对预处理敏感 | 端到端优化 |
+| 泛化能力 | 弱 | 强 |
+
+### 改进建议
+
+1. **特征优化**
+   - 使用 PCA 降维
+   - 特征选择（如 SelectKBest）
+   - 调整 HOG 参数
+
+2. **数据增强**
+   - 旋转、翻转、缩放
+   - 颜色抖动
+
+3. **模型调优**
+   - GridSearchCV 优化超参数
+   - 尝试其他核函数
+
+4. **集成方法**
+   - 多模型投票
+   - Stacking
+
+## 关键结论
+
+1. 深度学习模型显著优于传统 ML (90% vs 50-57%)
+2. 手工特征在细粒度害虫分类中判别力有限
+3. Swin Transformer 达到最高准确率 90.28%
+4. LightGBM 提供特征缓存功能，支持快速迭代开发
+5. 传统 ML 适合作为基线模型，但难以达到生产级精度
+
+## 机器学习准确率低详细分析
+
+### 各类别分类表现 (LightGBM)
+
+| 类别 | Precision | Recall | F1-Score | 问题 |
+|------|-----------|--------|----------|------|
+| 0-Ants | 0.5045 | 0.6437 | 0.5657 | 召回率较高 |
+| 1-Bees | 0.5846 | 0.8636 | 0.6972 | 召回率最高，精度一般 |
+| 2-Beetles | 0.3548 | 0.2500 | 0.2933 | 表现最差，多类别混淆 |
+| 3-Caterpillars | 0.4963 | 0.7204 | 0.5877 | 召回率高但精度低 |
+| 4-Earthworms | 0.5641 | 0.5500 | 0.5570 | 中等表现 |
+| 5-Earwigs | 0.4359 | 0.2329 | 0.3036 | 召回率极低 |
+| 6-Grasshoppers | 0.5814 | 0.4545 | 0.5102 | 精度尚可，召回率低 |
+| 7-Moths | 0.7949 | 0.6596 | 0.7209 | 表现较好 |
+| 8-Slugs | 0.6400 | 0.3137 | 0.4211 | 召回率低 |
+| 9-Snails | 0.6271 | 0.7400 | 0.6789 | 表现较好 |
+| 10-Wasps | 0.6939 | 0.7234 | 0.7083 | 表现较好 |
+| 11-Weevils | 0.7778 | 0.7241 | 0.7500 | 表现最好 |
+
+### 细粒度分类困难
+
+12 类害虫中存在多组形态相似类别：
+
+- **Bees vs Wasps**: 体型、颜色、翅膀特征高度相似
+- **Beetles vs Weevils**: 同属鞘翅目，外形接近
+- **Slugs vs Snails**: 软体动物，仅外壳差异
+- **Caterpillars vs Earthworms**: 长条形，纹理相似
+- **Grasshoppers vs Moths**: 翅膀展开时轮廓相似
+
+手工特征难以捕捉这些细微差异，而深度学习通过多层卷积自动学习判别性特征。
+
+### 特征维度失衡问题
+
+| 特征类型 | 维度 | 占比 | 影响 |
+|----------|------|------|------|
+| HOG | 1764 | 74.9% | 主导模型决策 |
+| HSV | 512 | 21.7% | 被 HOG 淹没 |
+| 其他 | 80 | 3.4% | 几乎无影响 |
+
+HOG 特征占比过高导致模型过度依赖边缘信息，而颜色、纹理等判别性特征贡献不足。
+
+### 64x64 分辨率限制
+
+- 输入 ROI 仅 64x64 像素
+- 细节特征（触角、足部、翅膀纹理）丢失
+- 深度学习使用 224x224 或 256x256，保留更多细节
+
+### 边界框裁剪质量
+
+- YOLO 检测框可能包含背景噪声
+- 裁剪边缘可能截断关键部位
+- 背景干扰影响特征提取质量
+
+### 类别不平衡影响
+
+| 支持度 | 类别数 | 平均 F1 |
+|--------|--------|---------|
+| < 50 | 5 | 0.44 |
+| 50-70 | 4 | 0.47 |
+| > 70 | 3 | 0.62 |
+
+样本量少的类别分类效果更差，模型倾向于预测多数类。
+
+### 根本原因总结
+
+| 因素 | 影响程度 | 可改进性 |
+|------|----------|----------|
+| 手工特征判别力不足 | 高 | 中 |
+| 输入分辨率低 | 高 | 低 |
+| 细粒度类别相似性 | 高 | 低 |
+| 特征维度失衡 | 中 | 高 |
+| 类别不平衡 | 中 | 高 |
+| 数据集规模 | 中 | 中 |
+
+传统 ML 方法在此任务上已达到性能瓶颈，进一步提升需依赖深度学习方法。

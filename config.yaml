@@ -1,5 +1,5 @@
 # Paths
-yolo_root: data/archive
+yolo_root: ./archive
 out_root: runs
 
 # Training
